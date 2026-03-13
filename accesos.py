@@ -697,6 +697,17 @@ def _normalizar_hora(hora: str) -> str:
     return f"{int(hora):02d}:00"
 
 
+def _hora_con_ampm(h: int, sufijo: str | None) -> int:
+    """Convertir hora a formato 24h aplicando sufijo am/pm."""
+    if sufijo:
+        s = sufijo.lower()
+        if s == "pm" and h != 12:
+            return h + 12
+        if s == "am" and h == 12:
+            return 0
+    return h
+
+
 # ============================================================
 # INVITACIONES GRUPALES
 # ============================================================
@@ -749,15 +760,20 @@ def crear_invitacion(
     if horas > 0:
         expira = (ahora + timedelta(hours=horas)).isoformat()
     else:
-        # Expira al final del último día (23:59:59)
         from zoneinfo import ZoneInfo
         fecha_hasta_dt = datetime.strptime(fecha_hasta, "%Y-%m-%d")
-        expira_dt = fecha_hasta_dt.replace(
-            hour=23, minute=59, second=59,
-            tzinfo=ZoneInfo(config.TIMEZONE)
-        )
-        # Si la expiración es en el pasado (fecha_hasta es hoy pero ya pasó hora_hasta),
-        # ajustar al final del día igualmente
+        # Si hay hora_hasta específica (no el default 23:59), usarla como límite exacto
+        if hora_hasta and hora_hasta not in ("23:59", ""):
+            h, m = map(int, hora_hasta.split(":"))
+            expira_dt = fecha_hasta_dt.replace(
+                hour=h, minute=m, second=0,
+                tzinfo=ZoneInfo(config.TIMEZONE)
+            )
+        else:
+            expira_dt = fecha_hasta_dt.replace(
+                hour=23, minute=59, second=59,
+                tzinfo=ZoneInfo(config.TIMEZONE)
+            )
         if expira_dt < ahora:
             expira_dt = ahora.replace(hour=23, minute=59, second=59)
         expira = expira_dt.isoformat()
@@ -893,9 +909,23 @@ def listar_invitaciones(creado_por: str = None) -> str:
         activas += 1
         restantes = inv["max_usos"] - inv["usos"]
         creador_str = f"\n  Creada por: {inv.get('creado_por', '?')}" if es_admin else ""
+
+        # Armar período legible
+        fecha_d = inv.get("fecha_desde", "")
+        fecha_h = inv.get("fecha_hasta", "")
+        hora_d = inv.get("hora_desde", "00:00")
+        hora_h = inv.get("hora_hasta", "23:59")
+        if fecha_d == fecha_h:
+            periodo_str = fecha_d
+        else:
+            periodo_str = f"{fecha_d} → {fecha_h}"
+        if hora_d != "00:00" or hora_h != "23:59":
+            periodo_str += f" ({hora_d}hs a {hora_h}hs)"
+
         resultado += (
             f"  Código: *{inv['codigo']}*\n"
             f"  Motivo: {inv.get('motivo', '—')}\n"
+            f"  Período: {periodo_str}\n"
             f"  Usos: {inv['usos']}/{inv['max_usos']} ({restantes} restantes)\n"
             f"  Expira: {inv['expira'][:16].replace('T', ' ')}"
             f"{creador_str}\n\n"
@@ -996,6 +1026,8 @@ def parsear_invitacion_natural(texto: str) -> dict:
                 este finde, 3 dias, 2 semanas, 6hs, 2026-03-15, etc.
       Personas: 20p, 20 personas
       Horario:  18 a 23, 10:00-14:00
+      Rango cruzado: sábado desde 20hs hasta domingo 10am
+                     desde sábado 22hs hasta domingo 8am
     """
     hoy = config.ahora().date()
     ahora_dt = config.ahora()
@@ -1014,13 +1046,72 @@ def parsear_invitacion_natural(texto: str) -> dict:
     if p_match:
         max_usos = min(int(p_match.group(1)), 50)
 
+    horario_usado = False
+    periodo_encontrado = False
+
+    # --- Detectar sintaxis cruzada "día desde hora hasta día hora" ---
+    # Ej: "sábado desde 20hs hasta domingo 10am" o "desde sábado 20hs hasta domingo 10am"
+    _DIAS_PAT = r'(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bados?|domingos?|hoy|ma[ñn]ana)'
+    _HORA_CAP = r'(\d{1,2})(?::(\d{2}))?\s*(hs?|horas?|am|pm)?'
+    _cross_A = (
+        r'(' + _DIAS_PAT + r')\s+desde\s+' + _HORA_CAP +
+        r'\s+hasta\s+(' + _DIAS_PAT + r')\s+' + _HORA_CAP
+    )
+    _cross_B = (
+        r'desde\s+(' + _DIAS_PAT + r')\s+' + _HORA_CAP +
+        r'\s+hasta\s+(' + _DIAS_PAT + r')\s+' + _HORA_CAP
+    )
+    cross_match = re.search(_cross_A, texto_lower) or re.search(_cross_B, texto_lower)
+
+    if cross_match:
+        # Grupos: 1=dia1, 2=h1, 3=m1, 4=ampm1, 5=dia2, 6=h2, 7=m2, 8=ampm2
+        dia1_str = cross_match.group(1)
+        h1 = _hora_con_ampm(int(cross_match.group(2)), cross_match.group(4))
+        m1 = int(cross_match.group(3)) if cross_match.group(3) else 0
+        dia2_str = cross_match.group(5)
+        h2 = _hora_con_ampm(int(cross_match.group(6)), cross_match.group(8))
+        m2 = int(cross_match.group(7)) if cross_match.group(7) else 0
+
+        hora_desde = f"{h1:02d}:{m1:02d}"
+        hora_hasta = f"{h2:02d}:{m2:02d}"
+
+        # Calcular fecha_desde
+        if "hoy" in dia1_str:
+            fecha_desde = hoy
+            dia1_weekday = hoy.weekday()
+        elif "ma" in dia1_str:  # mañana
+            fecha_desde = hoy + timedelta(days=1)
+            dia1_weekday = fecha_desde.weekday()
+        else:
+            dia1_weekday = _nombre_a_weekday(dia1_str)
+            days_ahead = (dia1_weekday - hoy.weekday()) % 7
+            fecha_desde = hoy if days_ahead == 0 else hoy + timedelta(days=days_ahead)
+
+        # Calcular fecha_hasta
+        if "hoy" in dia2_str:
+            fecha_hasta = hoy
+            dia2_weekday = hoy.weekday()
+        elif "ma" in dia2_str:  # mañana
+            fecha_hasta = hoy + timedelta(days=1)
+            dia2_weekday = fecha_hasta.weekday()
+        else:
+            dia2_weekday = _nombre_a_weekday(dia2_str)
+            delta = (dia2_weekday - dia1_weekday) % 7 or 7
+            fecha_hasta = fecha_desde + timedelta(days=delta)
+
+        # Días permitidos: todos los días del rango inclusive
+        delta_dias = (fecha_hasta - fecha_desde).days
+        dias = sorted(set((dia1_weekday + i) % 7 for i in range(delta_dias + 1)))
+
+        horario_usado = True
+        periodo_encontrado = True
+
     # --- Extraer horario (antes del período para evitar conflictos) ---
     horario_match = re.search(
         r'(?:de\s+)?(\d{1,2})(?::(\d{2}))?(?:\s*(?:hs?|horas?))?\s*(?:a|-|hasta)\s*(\d{1,2})(?::(\d{2}))?(?:\s*(?:hs?|horas?))?',
         texto_lower
     )
-    horario_usado = False
-    if horario_match:
+    if not horario_usado and horario_match:
         h1 = int(horario_match.group(1))
         h2 = int(horario_match.group(3))
         # Verificar que no sea un rango de período (ej: "3 a 5 dias")
@@ -1031,24 +1122,23 @@ def parsear_invitacion_natural(texto: str) -> dict:
             hora_hasta = f"{h2:02d}:{horario_match.group(4) or '00'}"
             horario_usado = True
 
-    # --- Extraer período ---
-    periodo_encontrado = False
-
-    # Fechas explícitas YYYY-MM-DD
-    if m := re.search(r'(\d{4}-\d{2}-\d{2})\s+(?:a\s+|hasta\s+)?(\d{4}-\d{2}-\d{2})', texto_lower):
-        try:
-            fecha_desde = datetime.strptime(m.group(1), "%Y-%m-%d").date()
-            fecha_hasta = datetime.strptime(m.group(2), "%Y-%m-%d").date()
-            periodo_encontrado = True
-        except ValueError:
-            pass
-    elif m := re.search(r'(\d{4}-\d{2}-\d{2})', texto_lower):
-        try:
-            fecha_desde = datetime.strptime(m.group(1), "%Y-%m-%d").date()
-            fecha_hasta = fecha_desde
-            periodo_encontrado = True
-        except ValueError:
-            pass
+    # --- Extraer período (solo si no fue resuelto por la sintaxis cruzada) ---
+    if not periodo_encontrado:
+        # Fechas explícitas YYYY-MM-DD
+        if m := re.search(r'(\d{4}-\d{2}-\d{2})\s+(?:a\s+|hasta\s+)?(\d{4}-\d{2}-\d{2})', texto_lower):
+            try:
+                fecha_desde = datetime.strptime(m.group(1), "%Y-%m-%d").date()
+                fecha_hasta = datetime.strptime(m.group(2), "%Y-%m-%d").date()
+                periodo_encontrado = True
+            except ValueError:
+                pass
+        elif m := re.search(r'(\d{4}-\d{2}-\d{2})', texto_lower):
+            try:
+                fecha_desde = datetime.strptime(m.group(1), "%Y-%m-%d").date()
+                fecha_hasta = fecha_desde
+                periodo_encontrado = True
+            except ValueError:
+                pass
 
     if not periodo_encontrado:
         if re.search(r'\bhoy\b', texto_lower):
@@ -1157,8 +1247,13 @@ def parsear_invitacion_natural(texto: str) -> dict:
 
     # --- Extraer motivo (quitar todo lo parseado) ---
     motivo_texto = texto
+    _DIAS_LIMPIO = r'(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bados?|domingos?|hoy|ma[ñn]ana)'
+    _HORA_LIMPIO = r'\d{1,2}(?::\d{2})?\s*(?:hs?|horas?|am|pm)?'
     for patron in [
         r'(\d+)\s*(?:personas?|p(?:ers)?|invitados?|usos?)\b',
+        # Sintaxis cruzada (debe ir antes de limpiar horas y días por separado)
+        _DIAS_LIMPIO + r'\s+desde\s+' + _HORA_LIMPIO + r'\s+hasta\s+' + _DIAS_LIMPIO + r'\s+' + _HORA_LIMPIO,
+        r'desde\s+' + _DIAS_LIMPIO + r'\s+' + _HORA_LIMPIO + r'\s+hasta\s+' + _DIAS_LIMPIO + r'\s+' + _HORA_LIMPIO,
         r'(\d+)\s*(?:hs?|horas?)\b',
         r'\bhoy\b', r'\bma[ñn]ana\b', r'\besta\s+semana\b', r'\beste\s+mes\b',
         r'\b(?:este\s+)?finde\b', r'\beste\s+fin\s*de\s*semana\b',

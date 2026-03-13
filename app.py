@@ -551,14 +551,26 @@ def handle_whatsapp():
         # Armar info de período para el mensaje
         dias_nombres = ["LUN", "MAR", "MIE", "JUE", "VIE", "SAB", "DOM"]
         es_mismo_dia = inv["fecha_desde"] == inv["fecha_hasta"]
+        hora_d = inv["hora_desde"]
+        hora_h = inv["hora_hasta"]
+        tiene_horario = hora_d != "00:00" or hora_h != "23:59"
 
         if es_mismo_dia:
-            periodo_str = f"Fecha: {inv['fecha_desde']}"
+            if tiene_horario:
+                periodo_str = f"Fecha: {inv['fecha_desde']} de {hora_d} a {hora_h}hs"
+            else:
+                periodo_str = f"Fecha: {inv['fecha_desde']}"
         else:
-            periodo_str = f"Desde {inv['fecha_desde']} hasta {inv['fecha_hasta']}"
+            if tiene_horario:
+                periodo_str = (
+                    f"Desde: {inv['fecha_desde']} {hora_d}hs\n"
+                    f"Hasta: {inv['fecha_hasta']} {hora_h}hs"
+                )
+            else:
+                periodo_str = f"Desde {inv['fecha_desde']} hasta {inv['fecha_hasta']}"
 
         info_dias = ""
-        if not es_mismo_dia:
+        if not es_mismo_dia and not tiene_horario:
             if sorted(inv["dias"]) == [0, 1, 2, 3, 4, 5, 6]:
                 info_dias = ""
             elif sorted(inv["dias"]) == [0, 1, 2, 3, 4]:
@@ -568,15 +580,11 @@ def handle_whatsapp():
             else:
                 info_dias = f"\nDías: {', '.join([dias_nombres[d] for d in inv['dias']])}"
 
-        horario = ""
-        if inv["hora_desde"] != "00:00" or inv["hora_hasta"] != "23:59":
-            horario = f"\nHorario: {inv['hora_desde']} a {inv['hora_hasta']}"
-
         response.message(
             f"🎟️ *Invitación creada*\n\n"
             f"Código: *{inv['codigo']}*\n"
             f"Motivo: {parsed['motivo'] or '—'}\n"
-            f"{periodo_str}{info_dias}{horario}\n"
+            f"{periodo_str}{info_dias}\n"
             f"Máximo: {parsed['max_usos']} personas\n\n"
             f"Compartí este mensaje:\n\n"
             f"_Para acceder al portón de {config.NOMBRE_BARRIO}, "
