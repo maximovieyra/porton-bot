@@ -1,17 +1,25 @@
 """
-Controlador eWeLink - Maneja autenticación y control del portón.
+Controlador eWeLink v3.1 - Maneja autenticación y control del portón.
 
-Usa la API de CoolKit (backend de eWeLink) directamente via HTTP.
-No depende de librerías de terceros que pueden romperse.
+Mejoras sobre v1:
+- Singleton: una sola instancia global
+- Token cacheado: no hace login en cada operación (12hs de vida)
+- Auto-retry: si el token expiró, re-login y reintenta
+- PulseResult: retorna detalle de qué pasó para avisar al usuario
+
+Usa un event loop nuevo por operación (como antes) porque
+run_coroutine_threadsafe + thread dedicado causa timeouts en Render.
 """
 
 import hashlib
 import hmac
 import base64
-import time
 import asyncio
+import json
 import logging
 import os
+import time as _time
+import threading
 import aiohttp
 
 logger = logging.getLogger(__name__)
@@ -24,13 +32,30 @@ API_URLS = {
     "as": "https://as-apia.coolkit.cc",
 }
 
-# APP ID/SECRET públicos de eWeLink (los mismos que usa la app oficial)
-APP_ID = "R8Oq3y0eSZSYdKccHlrQzT1ACCOUT9Gv"
-APP_SECRET = "1ve5Qk9GXfUhKAn1svnKwpAlxXkMarru"
+APP_ID = os.getenv("EWELINK_APP_ID", "R8Oq3y0eSZSYdKccHlrQzT1ACCOUT9Gv")
+APP_SECRET = os.getenv("EWELINK_APP_SECRET", "1ve5Qk9GXfUhKAn1svnKwpAlxXkMarru")
+
+# Token dura ~30 días en eWeLink, refrescamos cada 12 horas por seguridad
+TOKEN_REFRESH_SECONDS = 12 * 60 * 60
+
+
+class PulseResult:
+    """Resultado de una operación del portón."""
+
+    def __init__(self, ok: bool, error: str = "", detalle: str = ""):
+        self.ok = ok
+        self.error = error      # Mensaje corto para el usuario
+        self.detalle = detalle  # Detalle técnico para el log
+
+    def __bool__(self):
+        return self.ok
+
+    def __repr__(self):
+        return f"PulseResult(ok={self.ok}, error='{self.error}')"
 
 
 class EWeLinkController:
-    """Controlador para dispositivos eWeLink via API Cloud."""
+    """Controlador singleton para dispositivos eWeLink via API Cloud."""
 
     def __init__(self, email: str, password: str, region: str = "us", device_id: str = ""):
         self.email = email
@@ -38,32 +63,38 @@ class EWeLinkController:
         self.region = region
         self.device_id = device_id
         self.api_url = API_URLS.get(region, API_URLS["us"])
+
+        # Estado de autenticación (persiste entre operaciones)
         self.token = None
         self.user_apikey = None
-        self._session = None
+        self._token_timestamp = 0
 
-    async def _get_session(self) -> aiohttp.ClientSession:
-        if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession()
-        return self._session
+        # Lock para operaciones (evita pulsos simultáneos)
+        self._op_lock = threading.Lock()
 
-    async def close(self):
-        if self._session and not self._session.closed:
-            await self._session.close()
+        logger.info(f"EWeLinkController inicializado (región: {region}, device: {device_id})")
 
-    async def login(self) -> bool:
+    # ── Token management ──
+
+    def _token_vigente(self) -> bool:
+        """Verificar si el token todavía es válido."""
+        if not self.token:
+            return False
+        return (_time.time() - self._token_timestamp) < TOKEN_REFRESH_SECONDS
+
+    # ── Operaciones async internas ──
+
+    async def _login(self, session: aiohttp.ClientSession) -> bool:
         """Autenticarse con eWeLink y obtener token."""
         try:
-            session = await self._get_session()
             url = f"{self.api_url}/v2/user/login"
 
             payload = {
                 "email": self.email,
                 "password": self.password,
-                "countryCode": "+86",
+                "countryCode": os.getenv("EWELINK_COUNTRY_CODE", "+54"),
             }
 
-            import json
             body = json.dumps(payload, separators=(',', ':'))
 
             sign = base64.b64encode(
@@ -86,106 +117,39 @@ class EWeLinkController:
             if data.get("error") == 0:
                 self.token = data["data"]["at"]
                 self.user_apikey = data["data"]["user"]["apikey"]
+                self._token_timestamp = _time.time()
                 logger.info("Login exitoso en eWeLink")
                 return True
             else:
-                logger.error(f"Error login eWeLink: {data}")
+                error_code = data.get("error", "?")
+                error_msg = data.get("msg", "desconocido")
+                logger.error(f"Error login eWeLink: código {error_code} - {error_msg}")
                 return False
 
-        except Exception as e:
-            logger.error(f"Excepción en login: {e}")
+        except aiohttp.ClientError as e:
+            logger.error(f"Error de conexión en login: {e}")
             return False
-            async with session.post(url, data=body, headers=headers) as resp:
-                data = await resp.json()
-
-            async with session.post(url, json=payload, headers=headers) as resp:
-                data = await resp.json()
-
-            if data.get("error") == 0:
-                self.token = data["data"]["at"]
-                self.user_apikey = data["data"]["user"]["apikey"]
-                logger.info("Login exitoso en eWeLink")
-                return True
-            else:
-                logger.error(f"Error login eWeLink: {data}")
-                return False
-
         except Exception as e:
             logger.error(f"Excepción en login: {e}")
             return False
 
-    async def get_devices(self) -> list:
-        """Obtener lista de dispositivos."""
-        try:
-            session = await self._get_session()
-            url = f"{self.api_url}/v2/device/thing"
+    def _auth_headers(self) -> dict:
+        """Headers para requests autenticados."""
+        return {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.token}",
+            "X-CK-Appid": APP_ID,
+            "X-CK-Nonce": os.urandom(4).hex(),
+        }
 
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.token}",
-                "X-CK-Appid": APP_ID,
-                "X-CK-Nonce": os.urandom(4).hex(),
-            }
-
-            payload = {"thingList": []}
-
-            # Primero obtener la lista de familias/hogares
-            family_url = f"{self.api_url}/v2/family"
-            async with session.get(family_url, headers=headers) as resp:
-                family_data = await resp.json()
-
-            if family_data.get("error") != 0:
-                logger.error(f"Error obteniendo familias: {family_data}")
-                return []
-
-            # Obtener dispositivos
-            device_url = f"{self.api_url}/v2/device/thing"
-            async with session.get(
-                f"{self.api_url}/v2/device/thing?num=0&beginIndex=-9999999",
-                headers=headers,
-            ) as resp:
-                device_data = await resp.json()
-
-            if device_data.get("error") == 0:
-                things = device_data.get("data", {}).get("thingList", [])
-                devices = []
-                for thing in things:
-                    item = thing.get("itemData", {})
-                    devices.append({
-                        "id": item.get("deviceid"),
-                        "name": item.get("name"),
-                        "online": item.get("online"),
-                        "state": item.get("params", {}).get("switch"),
-                    })
-                return devices
-            else:
-                logger.error(f"Error obteniendo dispositivos: {device_data}")
-                return []
-
-        except Exception as e:
-            logger.error(f"Excepción obteniendo dispositivos: {e}")
-            return []
-
-    async def set_switch(self, state: str, device_id: str = None) -> bool:
-        """
-        Cambiar estado del switch.
-        state: "on" o "off"
-        """
+    async def _set_switch(self, session: aiohttp.ClientSession, state: str, device_id: str = None) -> PulseResult:
+        """Cambiar estado del switch."""
         device_id = device_id or self.device_id
         if not device_id:
-            logger.error("No se especificó device_id")
-            return False
+            return PulseResult(False, "Sin device_id configurado", "No se especificó device_id")
 
         try:
-            session = await self._get_session()
             url = f"{self.api_url}/v2/device/thing/status"
-
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.token}",
-                "X-CK-Appid": APP_ID,
-                "X-CK-Nonce": os.urandom(4).hex(),
-            }
 
             payload = {
                 "type": 1,
@@ -193,89 +157,189 @@ class EWeLinkController:
                 "params": {"switch": state},
             }
 
-            async with session.post(url, json=payload, headers=headers) as resp:
+            async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
                 data = await resp.json()
 
-            if data.get("error") == 0:
+            error_code = data.get("error", -1)
+
+            if error_code == 0:
                 logger.info(f"Switch {device_id} -> {state}")
-                return True
-            else:
-                logger.error(f"Error cambiando switch: {data}")
-                return False
+                return PulseResult(True)
 
+            # Token expirado → re-login y reintentar
+            if error_code == 401:
+                logger.warning("Token expirado, re-login...")
+                if await self._login(session):
+                    async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
+                        data = await resp.json()
+                    if data.get("error") == 0:
+                        logger.info(f"Switch {device_id} -> {state} (retry OK)")
+                        return PulseResult(True)
+                return PulseResult(False, "Error de autenticación con eWeLink", "401 persistente")
+
+            # Dispositivo offline
+            if error_code == 500:
+                return PulseResult(
+                    False,
+                    "⚠️ El dispositivo del portón está offline. Verificá la conexión WiFi del relay.",
+                    f"Device {device_id} offline (error 500)"
+                )
+
+            return PulseResult(False, f"Error de eWeLink (código {error_code})", f"{data}")
+
+        except aiohttp.ClientError as e:
+            return PulseResult(
+                False,
+                "⚠️ No se pudo conectar con eWeLink. Puede ser un problema de internet del servidor.",
+                f"ClientError: {e}"
+            )
+        except asyncio.TimeoutError:
+            return PulseResult(
+                False,
+                "⚠️ eWeLink no respondió a tiempo. Intentá de nuevo.",
+                "Timeout en set_switch"
+            )
         except Exception as e:
-            logger.error(f"Excepción en set_switch: {e}")
-            return False
+            return PulseResult(False, f"Error inesperado: {e}", f"Excepción: {e}")
 
-    async def pulse(self, seconds: int = 3, device_id: str = None) -> bool:
-        """
-        Pulso: enciende, espera X segundos, apaga.
-        Simula apretar un botón del portón.
-        """
+    async def _pulse_async(self, seconds: int = 3, device_id: str = None) -> PulseResult:
+        """Pulso completo: login si hace falta, on, wait, off."""
         device_id = device_id or self.device_id
+        timeout = aiohttp.ClientTimeout(total=20)
 
-        logger.info(f"Ejecutando pulso de {seconds}s en {device_id}")
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            # Login si hace falta
+            if not self._token_vigente():
+                logger.info("Token expirado o inexistente, haciendo login...")
+                if not await self._login(session):
+                    return PulseResult(
+                        False,
+                        "⚠️ No se pudo conectar con eWeLink. Verificá las credenciales o la conexión.",
+                        "Login fallido"
+                    )
 
-        # Encender
-        result = await self.set_switch("on", device_id)
-        if not result:
-            return False
+            logger.info(f"Ejecutando pulso de {seconds}s en {device_id}")
 
-        # Esperar
-        await asyncio.sleep(seconds)
+            # Encender
+            result = await self._set_switch(session, "on", device_id)
+            if not result:
+                return result
 
-        # Apagar
-        result = await self.set_switch("off", device_id)
-        return result
+            # Esperar
+            await asyncio.sleep(seconds)
 
+            # Apagar
+            result_off = await self._set_switch(session, "off", device_id)
+            if not result_off:
+                logger.error(f"ALERTA: relay quedó encendido en {device_id}")
+                return PulseResult(
+                    False,
+                    "⚠️ El portón se activó pero hubo un error al apagar el relay. Puede que haya quedado encendido.",
+                    "Encendido OK, apagado FALLÓ"
+                )
 
-# --- Funciones helper para usar desde código sincrónico (Flask) ---
+            return PulseResult(True)
 
-_controller = None
+    async def _get_devices_async(self) -> list:
+        """Obtener lista de dispositivos."""
+        timeout = aiohttp.ClientTimeout(total=15)
 
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            if not self._token_vigente():
+                if not await self._login(session):
+                    return []
 
-def get_controller(email: str, password: str, region: str, device_id: str) -> EWeLinkController:
-    """Obtener instancia del controlador (singleton)."""
-    global _controller
-    if _controller is None:
-        _controller = EWeLinkController(email, password, region, device_id)
-    return _controller
+            try:
+                async with session.get(
+                    f"{self.api_url}/v2/device/thing?num=0&beginIndex=-9999999",
+                    headers=self._auth_headers(),
+                ) as resp:
+                    device_data = await resp.json()
 
+                if device_data.get("error") == 0:
+                    things = device_data.get("data", {}).get("thingList", [])
+                    devices = []
+                    for thing in things:
+                        item = thing.get("itemData", {})
+                        devices.append({
+                            "id": item.get("deviceid"),
+                            "name": item.get("name"),
+                            "online": item.get("online"),
+                            "state": item.get("params", {}).get("switch"),
+                        })
+                    return devices
+                else:
+                    logger.error(f"Error obteniendo dispositivos: {device_data}")
+                    return []
 
-def sync_pulse(controller: EWeLinkController, seconds: int = 3) -> bool:
-    """Ejecutar pulso de forma sincrónica (para usar desde Flask)."""
-    loop = asyncio.new_event_loop()
-    try:
-        # Login si no hay token
-        if not controller.token:
-            success = loop.run_until_complete(controller.login())
-            if not success:
-                return False
-
-        result = loop.run_until_complete(controller.pulse(seconds))
-        return result
-    except Exception as e:
-        logger.error(f"Error en sync_pulse: {e}")
-        return False
-    finally:
-        loop.run_until_complete(controller.close())
-        loop.close()
-
-
-def sync_get_devices(controller: EWeLinkController) -> list:
-    """Obtener dispositivos de forma sincrónica."""
-    loop = asyncio.new_event_loop()
-    try:
-        if not controller.token:
-            success = loop.run_until_complete(controller.login())
-            if not success:
+            except Exception as e:
+                logger.error(f"Excepción obteniendo dispositivos: {e}")
                 return []
 
-        devices = loop.run_until_complete(controller.get_devices())
-        return devices
-    except Exception as e:
-        logger.error(f"Error en sync_get_devices: {e}")
-        return []
-    finally:
-        loop.run_until_complete(controller.close())
-        loop.close()
+    # ── API pública (sincrónica, thread-safe) ──
+
+    def pulse(self, seconds: int = 3, device_id: str = None) -> PulseResult:
+        """Ejecutar pulso. Thread-safe (usa lock para evitar pulsos simultáneos)."""
+        with self._op_lock:
+            loop = asyncio.new_event_loop()
+            try:
+                return loop.run_until_complete(self._pulse_async(seconds, device_id))
+            except Exception as e:
+                logger.error(f"Error en pulse: {e}")
+                return PulseResult(False, f"Error inesperado: {e}", str(e))
+            finally:
+                loop.close()
+
+    def get_devices(self) -> list:
+        """Obtener dispositivos. Thread-safe."""
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(self._get_devices_async())
+        except Exception as e:
+            logger.error(f"Error en get_devices: {e}")
+            return []
+        finally:
+            loop.close()
+
+    def force_login(self) -> bool:
+        """Forzar re-login (para debug)."""
+        self.token = None
+        self._token_timestamp = 0
+
+        async def _do_login():
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                return await self._login(session)
+
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(_do_login())
+        except Exception as e:
+            logger.error(f"Error en force_login: {e}")
+            return False
+        finally:
+            loop.close()
+
+
+# ============================================================
+# SINGLETON GLOBAL
+# ============================================================
+
+_instance = None
+_instance_lock = threading.Lock()
+
+
+def get_controller() -> EWeLinkController:
+    """Obtener la instancia singleton del controller."""
+    global _instance
+    if _instance is None:
+        with _instance_lock:
+            if _instance is None:
+                import config
+                _instance = EWeLinkController(
+                    email=config.EWELINK_EMAIL,
+                    password=config.EWELINK_PASSWORD,
+                    region=config.EWELINK_REGION,
+                    device_id=config.EWELINK_DEVICE_ID,
+                )
+    return _instance

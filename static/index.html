@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0f1117">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/static/manifest.json">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<title>Portón</title>
+<style>
+:root {
+  --bg: #0f1117;
+  --bg2: #1a1d27;
+  --bg3: #242834;
+  --text: #e8e9ed;
+  --text2: #8b8fa3;
+  --green: #22c55e;
+  --green-dim: #16a34a;
+  --red: #ef4444;
+  --red-dim: #dc2626;
+  --blue: #3b82f6;
+  --yellow: #eab308;
+  --radius: 16px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'DM Sans', -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100dvh;
+  overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ── SCREENS ── */
+.screen { display: none; flex-direction: column; min-height: 100dvh; padding-bottom: 80px; }
+.screen.active { display: flex; }
+
+/* ── LOGIN ── */
+.login-screen {
+  justify-content: center;
+  align-items: center;
+  padding: 32px;
+  padding-bottom: 0;
+}
+.login-logo {
+  font-size: 48px;
+  margin-bottom: 8px;
+}
+.login-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.login-subtitle {
+  color: var(--text2);
+  font-size: 14px;
+  margin-bottom: 40px;
+}
+.login-form {
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.input-group { position: relative; }
+.input-group label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+.input-group input {
+  width: 100%;
+  padding: 14px 16px;
+  background: var(--bg2);
+  border: 1px solid var(--bg3);
+  border-radius: 12px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 16px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.input-group input:focus { border-color: var(--blue); }
+.input-group input::placeholder { color: var(--text2); }
+.prefix-hint {
+  font-size: 11px;
+  color: var(--text2);
+  margin-top: 4px;
+}
+.btn {
+  padding: 14px 24px;
+  border: none;
+  border-radius: 12px;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+}
+.btn:active { transform: scale(0.97); }
+.btn-primary {
+  background: var(--blue);
+  color: white;
+  margin-top: 8px;
+}
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+  transform: none;
+}
+.login-error {
+  color: var(--red);
+  font-size: 14px;
+  text-align: center;
+  min-height: 20px;
+}
+
+/* ── MAIN (abrir/cerrar) ── */
+.main-screen { padding: 24px 20px; }
+.main-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 32px;
+}
+.main-barrio {
+  font-size: 18px;
+  font-weight: 700;
+}
+.main-rol {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: var(--bg3);
+  color: var(--text2);
+}
+.main-rol.superadmin { background: #eab30820; color: var(--yellow); }
+.main-rol.habitante { background: #3b82f620; color: var(--blue); }
+
+.status-card {
+  background: var(--bg2);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 32px;
+  text-align: center;
+}
+.status-icon { font-size: 40px; margin-bottom: 8px; }
+.status-text { font-size: 14px; color: var(--text2); }
+.status-text strong { color: var(--text); }
+.status-bloqueado {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--red);
+  font-weight: 600;
+}
+
+.gate-buttons {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+.btn-gate {
+  flex: 1;
+  padding: 40px 16px;
+  border: none;
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 20px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.btn-gate:active { transform: scale(0.95); }
+.btn-gate:disabled { opacity: 0.4; cursor: default; transform: none; }
+.btn-gate-icon { font-size: 36px; }
+.btn-abrir { background: var(--green); color: #052e16; }
+.btn-abrir:active { background: var(--green-dim); }
+.btn-cerrar { background: var(--red); color: #450a0a; }
+.btn-cerrar:active { background: var(--red-dim); }
+
+.feedback {
+  text-align: center;
+  font-size: 15px;
+  min-height: 24px;
+  transition: opacity 0.3s;
+}
+.feedback.ok { color: var(--green); }
+.feedback.err { color: var(--red); }
+
+/* ── TEMPORALES ── */
+.temp-screen { padding: 24px 20px; }
+.section-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 20px;
+}
+.temp-form {
+  background: var(--bg2);
+  border-radius: var(--radius);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.temp-form .input-group input,
+.temp-form select {
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--bg3);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 15px;
+  outline: none;
+}
+.temp-form select { appearance: none; }
+.temp-form .row { display: flex; gap: 10px; }
+.temp-form .row > * { flex: 1; }
+.btn-crear {
+  background: var(--blue);
+  color: white;
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: 12px;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-crear:active { transform: scale(0.97); }
+
+.temp-list { display: flex; flex-direction: column; gap: 10px; }
+.temp-card {
+  background: var(--bg2);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+.temp-card.vencido { opacity: 0.5; }
+.temp-nombre { font-weight: 600; font-size: 15px; }
+.temp-numero { font-size: 13px; color: var(--text2); }
+.temp-periodo { font-size: 13px; color: var(--text2); margin-top: 4px; }
+.temp-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
+  margin-top: 6px;
+}
+.temp-badge.activo { background: #22c55e20; color: var(--green); }
+.temp-badge.vencido { background: #ef444420; color: var(--red); }
+
+/* ── ADMIN ── */
+.admin-screen { padding: 24px 20px; }
+.admin-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+.btn-admin {
+  padding: 16px;
+  background: var(--bg2);
+  border: 1px solid var(--bg3);
+  border-radius: 12px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.btn-admin:active { background: var(--bg3); }
+.btn-admin .icon { font-size: 24px; }
+.btn-admin.danger { border-color: var(--red); }
+
+.log-list { display: flex; flex-direction: column; gap: 6px; }
+.log-entry {
+  background: var(--bg2);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+}
+.log-time { color: var(--text2); }
+.log-action { font-weight: 600; }
+.log-detail { color: var(--text2); font-size: 12px; }
+
+.empty-state {
+  text-align: center;
+  color: var(--text2);
+  padding: 40px 20px;
+  font-size: 14px;
+}
+
+/* ── NAV ── */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--bg2);
+  border-top: 1px solid var(--bg3);
+  display: flex;
+  padding-bottom: var(--safe-bottom);
+  z-index: 100;
+}
+.nav-item {
+  flex: 1;
+  padding: 10px 0;
+  text-align: center;
+  cursor: pointer;
+  transition: color 0.2s;
+  color: var(--text2);
+  font-size: 11px;
+  font-weight: 500;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  border: none;
+  background: none;
+  font-family: inherit;
+}
+.nav-item .nav-icon { font-size: 22px; }
+.nav-item.active { color: var(--blue); }
+
+/* ── TOAST ── */
+.toast {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-100px);
+  background: var(--bg3);
+  color: var(--text);
+  padding: 12px 24px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  z-index: 200;
+  transition: transform 0.3s ease;
+  pointer-events: none;
+}
+.toast.show { transform: translateX(-50%) translateY(0); }
+.toast.error { background: var(--red); color: white; }
+
+/* ── SPINNER ── */
+.spinner {
+  width: 20px; height: 20px;
+  border: 2px solid transparent;
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  display: inline-block;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── LOGOUT ── */
+.logout-btn {
+  background: none;
+  border: none;
+  color: var(--text2);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 8px;
+  font-family: inherit;
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════ LOGIN ═══════ -->
+<div id="login-screen" class="screen login-screen active">
+  <div class="login-logo">🏠</div>
+  <div class="login-title" id="login-barrio">Portón</div>
+  <div class="login-subtitle">Ingresá tu número y el PIN del barrio</div>
+  <div class="login-form">
+    <div class="input-group">
+      <label>Número de celular</label>
+      <input type="tel" id="login-numero" placeholder="2214475215" inputmode="tel" autocomplete="tel">
+      <div class="prefix-hint">Sin +549, se agrega solo</div>
+    </div>
+    <div class="input-group">
+      <label>PIN del barrio</label>
+      <input type="password" id="login-pin" placeholder="••••" inputmode="numeric" maxlength="10" autocomplete="current-password">
+    </div>
+    <div class="login-error" id="login-error"></div>
+    <button class="btn btn-primary" id="login-btn" onclick="doLogin()">Entrar</button>
+  </div>
+</div>
+
+<!-- ═══════ MAIN ═══════ -->
+<div id="main-screen" class="screen main-screen">
+  <div class="main-header">
+    <div>
+      <div class="main-barrio" id="main-barrio">Portón</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span class="main-rol" id="main-rol">—</span>
+      <button class="logout-btn" onclick="doLogout()">Salir</button>
+    </div>
+  </div>
+
+  <div class="status-card" id="status-card">
+    <div class="status-icon" id="status-icon">🔒</div>
+    <div class="status-text" id="status-text">Cargando...</div>
+    <div class="status-bloqueado" id="status-bloqueado" style="display:none">🔴 BLOQUEADO</div>
+  </div>
+
+  <div class="gate-buttons">
+    <button class="btn-gate btn-abrir" id="btn-abrir" onclick="doAbrir()">
+      <span class="btn-gate-icon">🔓</span>
+      ABRIR
+    </button>
+    <button class="btn-gate btn-cerrar" id="btn-cerrar" onclick="doCerrar()">
+      <span class="btn-gate-icon">🔒</span>
+      CERRAR
+    </button>
+  </div>
+  <div class="feedback" id="feedback"></div>
+</div>
+
+<!-- ═══════ TEMPORALES ═══════ -->
+<div id="temp-screen" class="screen temp-screen">
+  <div class="section-title">Accesos temporales</div>
+
+  <div class="temp-form" id="temp-form">
+    <div class="input-group">
+      <label>Número</label>
+      <input type="tel" id="temp-numero" placeholder="2211234567" inputmode="tel">
+    </div>
+    <div class="input-group">
+      <label>Nombre (opcional)</label>
+      <input type="text" id="temp-nombre" placeholder="Ej: Pintor, Gasista...">
+    </div>
+    <div class="row">
+      <div class="input-group">
+        <label>Desde</label>
+        <input type="date" id="temp-desde">
+      </div>
+      <div class="input-group">
+        <label>Hasta</label>
+        <input type="date" id="temp-hasta">
+      </div>
+    </div>
+    <div class="input-group">
+      <label>Días</label>
+      <select id="temp-dias">
+        <option value="todos">Todos los días</option>
+        <option value="habiles">Lunes a Viernes</option>
+        <option value="finde">Fin de semana</option>
+      </select>
+    </div>
+    <div class="row">
+      <div class="input-group">
+        <label>Hora desde</label>
+        <input type="time" id="temp-hora-desde" value="00:00">
+      </div>
+      <div class="input-group">
+        <label>Hora hasta</label>
+        <input type="time" id="temp-hora-hasta" value="23:59">
+      </div>
+    </div>
+    <button class="btn-crear" onclick="crearTemporal()">Crear acceso temporal</button>
+  </div>
+
+  <div class="temp-list" id="temp-list"></div>
+</div>
+
+<!-- ═══════ ADMIN ═══════ -->
+<div id="admin-screen" class="screen admin-screen">
+  <div class="section-title">Administración</div>
+
+  <div class="admin-actions" id="admin-actions">
+    <button class="btn-admin" onclick="toggleBloqueo()">
+      <span class="icon" id="bloqueo-icon">🔴</span>
+      <span id="bloqueo-text">Bloquear</span>
+    </button>
+    <button class="btn-admin" onclick="loadLog()">
+      <span class="icon">📋</span>
+      Registro
+    </button>
+  </div>
+
+  <div id="admin-content"></div>
+</div>
+
+<!-- ═══════ BOTTOM NAV ═══════ -->
+<nav class="bottom-nav" id="bottom-nav" style="display:none">
+  <button class="nav-item active" data-screen="main">
+    <span class="nav-icon">🏠</span>
+    Portón
+  </button>
+  <button class="nav-item" data-screen="temp">
+    <span class="nav-icon">⏰</span>
+    Temporales
+  </button>
+  <button class="nav-item" data-screen="admin" id="nav-admin" style="display:none">
+    <span class="nav-icon">⚙️</span>
+    Admin
+  </button>
+</nav>
+
+<!-- ═══════ TOAST ═══════ -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ═══════ STATE ═══════
+let token = null;
+let rol = null;
+let numero = null;
+let barrio = 'Portón';
+let bloqueado = false;
+
+// ═══════ INIT ═══════
+(function init() {
+  // Recuperar sesión
+  try {
+    const s = sessionStorage.getItem('porton_session');
+    if (s) {
+      const data = JSON.parse(s);
+      token = data.token;
+      rol = data.rol;
+      numero = data.numero;
+      barrio = data.barrio || 'Portón';
+      showApp();
+    }
+  } catch(e) {}
+
+  // Service worker
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+  }
+
+  // Enter en login
+  document.getElementById('login-pin').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') doLogin();
+  });
+
+  // Set fecha default en temporales
+  const hoy = new Date().toISOString().split('T')[0];
+  document.getElementById('temp-desde').value = hoy;
+  const semana = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
+  document.getElementById('temp-hasta').value = semana;
+})();
+
+// ═══════ API ═══════
+async function api(path, opts = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  try {
+    const res = await fetch(`/api${path}`, {
+      method: opts.method || 'GET',
+      headers,
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    });
+
+    const data = await res.json();
+    if (res.status === 401) {
+      doLogout();
+      toast('Sesión expirada', true);
+      return null;
+    }
+    if (!res.ok) {
+      toast(data.error || 'Error', true);
+      return null;
+    }
+    return data;
+  } catch(e) {
+    toast('Sin conexión', true);
+    return null;
+  }
+}
+
+// ═══════ LOGIN ═══════
+async function doLogin() {
+  const btn = document.getElementById('login-btn');
+  const num = document.getElementById('login-numero').value.trim();
+  const pin = document.getElementById('login-pin').value.trim();
+  const err = document.getElementById('login-error');
+
+  if (!num || !pin) { err.textContent = 'Completá ambos campos'; return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  err.textContent = '';
+
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ numero: num, pin }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      err.textContent = data.error || 'Error';
+      return;
+    }
+
+    token = data.token;
+    rol = data.rol;
+    numero = data.numero;
+    barrio = data.barrio || 'Portón';
+
+    sessionStorage.setItem('porton_session', JSON.stringify({ token, rol, numero, barrio }));
+    showApp();
+  } catch(e) {
+    err.textContent = 'Sin conexión al servidor';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Entrar';
+  }
+}
+
+function doLogout() {
+  token = null; rol = null; numero = null;
+  sessionStorage.removeItem('porton_session');
+  document.getElementById('bottom-nav').style.display = 'none';
+  showScreen('login');
+}
+
+// ═══════ APP ═══════
+function showApp() {
+  // Barrio name
+  document.getElementById('login-barrio').textContent = barrio;
+  document.getElementById('main-barrio').textContent = barrio;
+
+  // Rol badge
+  const rolEl = document.getElementById('main-rol');
+  rolEl.textContent = rol === 'superadmin' ? '👑 Admin' : '🏠 Habitante';
+  rolEl.className = `main-rol ${rol}`;
+
+  // Show/hide admin tab
+  document.getElementById('nav-admin').style.display = rol === 'superadmin' ? 'flex' : 'none';
+
+  // Show nav and main screen
+  document.getElementById('bottom-nav').style.display = 'flex';
+  showScreen('main');
+  loadEstado();
+}
+
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+
+  const screenId = name === 'login' ? 'login-screen' :
+                   name === 'main' ? 'main-screen' :
+                   name === 'temp' ? 'temp-screen' :
+                   'admin-screen';
+  document.getElementById(screenId).classList.add('active');
+
+  const navItem = document.querySelector(`.nav-item[data-screen="${name}"]`);
+  if (navItem) navItem.classList.add('active');
+
+  // Load data for screen
+  if (name === 'temp') loadTemporales();
+  if (name === 'main') loadEstado();
+}
+
+// Nav clicks
+document.querySelectorAll('.nav-item').forEach(btn => {
+  btn.addEventListener('click', () => showScreen(btn.dataset.screen));
+});
+
+// ═══════ ESTADO ═══════
+async function loadEstado() {
+  const data = await api('/estado');
+  if (!data) return;
+
+  const icon = document.getElementById('status-icon');
+  const text = document.getElementById('status-text');
+  const bloqEl = document.getElementById('status-bloqueado');
+
+  bloqueado = data.bloqueado;
+
+  if (data.bloqueado) {
+    icon.textContent = '🔴';
+    bloqEl.style.display = 'block';
+  } else {
+    icon.textContent = data.abierto ? '🔓' : '🔒';
+    bloqEl.style.display = 'none';
+  }
+
+  if (data.ultimo_cambio) {
+    const d = new Date(data.ultimo_cambio);
+    const ts = d.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    text.innerHTML = `<strong>${data.abierto ? 'Abierto' : 'Cerrado'}</strong> · ${ts}`;
+  } else {
+    text.textContent = 'Sin actividad';
+  }
+}
+
+// ═══════ ABRIR / CERRAR ═══════
+async function doAbrir() {
+  const btn = document.getElementById('btn-abrir');
+  btn.disabled = true;
+  const data = await api('/abrir', { method: 'POST' });
+  btn.disabled = false;
+
+  if (data) {
+    showFeedback('🔓 Abriendo portón...', 'ok');
+    setTimeout(loadEstado, 2000);
+  }
+}
+
+async function doCerrar() {
+  const btn = document.getElementById('btn-cerrar');
+  btn.disabled = true;
+  const data = await api('/cerrar', { method: 'POST' });
+  btn.disabled = false;
+
+  if (data) {
+    showFeedback('🔒 Cerrando portón...', 'ok');
+    setTimeout(loadEstado, 2000);
+  }
+}
+
+function showFeedback(msg, type) {
+  const el = document.getElementById('feedback');
+  el.textContent = msg;
+  el.className = `feedback ${type}`;
+  setTimeout(() => { el.textContent = ''; }, 4000);
+}
+
+// ═══════ TEMPORALES ═══════
+async function loadTemporales() {
+  const data = await api('/temporales');
+  if (!data) return;
+
+  const list = document.getElementById('temp-list');
+  const dias = ['LUN','MAR','MIE','JUE','VIE','SAB','DOM'];
+
+  if (data.temporales.length === 0) {
+    list.innerHTML = '<div class="empty-state">No hay accesos temporales</div>';
+    return;
+  }
+
+  list.innerHTML = data.temporales.map(t => {
+    const diasStr = t.dias.length === 7 ? 'Todos' :
+                    JSON.stringify(t.dias.sort()) === '[0,1,2,3,4]' ? 'Lun-Vie' :
+                    JSON.stringify(t.dias.sort()) === '[5,6]' ? 'Finde' :
+                    t.dias.map(d => dias[d]).join(', ');
+    const horario = (t.hora_desde !== '00:00' || t.hora_hasta !== '23:59')
+                    ? ` · ${t.hora_desde}-${t.hora_hasta}` : '';
+    return `
+      <div class="temp-card${t.vencido ? ' vencido' : ''}">
+        <div class="temp-nombre">${t.nombre || 'Sin nombre'}</div>
+        <div class="temp-numero">${t.numero}</div>
+        <div class="temp-periodo">${t.fecha_desde} a ${t.fecha_hasta} · ${diasStr}${horario}</div>
+        <span class="temp-badge ${t.vencido ? 'vencido' : 'activo'}">${t.vencido ? 'Vencido' : 'Activo'}</span>
+      </div>`;
+  }).join('');
+}
+
+async function crearTemporal() {
+  const numero = document.getElementById('temp-numero').value.trim();
+  const nombre = document.getElementById('temp-nombre').value.trim();
+  const desde = document.getElementById('temp-desde').value;
+  const hasta = document.getElementById('temp-hasta').value;
+  const diasSel = document.getElementById('temp-dias').value;
+  const hDesde = document.getElementById('temp-hora-desde').value;
+  const hHasta = document.getElementById('temp-hora-hasta').value;
+
+  if (!numero || !desde || !hasta) {
+    toast('Completá número y fechas', true);
+    return;
+  }
+
+  const diasMap = {
+    todos: [0,1,2,3,4,5,6],
+    habiles: [0,1,2,3,4],
+    finde: [5,6],
+  };
+
+  const data = await api('/temporales', {
+    method: 'POST',
+    body: {
+      numero, nombre,
+      fecha_desde: desde,
+      fecha_hasta: hasta,
+      dias: diasMap[diasSel],
+      hora_desde: hDesde || '00:00',
+      hora_hasta: hHasta || '23:59',
+    },
+  });
+
+  if (data) {
+    toast('✅ Acceso temporal creado');
+    document.getElementById('temp-numero').value = '';
+    document.getElementById('temp-nombre').value = '';
+    loadTemporales();
+  }
+}
+
+// ═══════ ADMIN ═══════
+async function toggleBloqueo() {
+  const endpoint = bloqueado ? '/desbloquear' : '/bloquear';
+  const data = await api(endpoint, { method: 'POST' });
+  if (data) {
+    toast(data.mensaje);
+    bloqueado = !bloqueado;
+    document.getElementById('bloqueo-icon').textContent = bloqueado ? '🟢' : '🔴';
+    document.getElementById('bloqueo-text').textContent = bloqueado ? 'Desbloquear' : 'Bloquear';
+    loadEstado();
+  }
+}
+
+async function loadLog() {
+  const data = await api('/log?n=30');
+  if (!data) return;
+
+  const content = document.getElementById('admin-content');
+  const emojis = {
+    abrir: '🔓', cerrar: '🔒', acceso_denegado: '🚫',
+    pin_ok: '🔑', pin_fail: '❌', temporal_creado: '⏰',
+    numero_agregado: '➕', numero_eliminado: '➖',
+    bloquear: '🔴', desbloquear: '🟢',
+    login: '👤', error_abrir: '⚠️', error_cerrar: '⚠️',
+  };
+
+  if (data.registros.length === 0) {
+    content.innerHTML = '<div class="empty-state">Sin registros</div>';
+    return;
+  }
+
+  content.innerHTML = '<div class="log-list">' + data.registros.map(r => {
+    const d = new Date(r.timestamp);
+    const ts = d.toLocaleString('es-AR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+    const emoji = emojis[r.accion] || '📋';
+    return `
+      <div class="log-entry">
+        <span class="log-time">${ts}</span>
+        <span class="log-action">${emoji} ${r.accion}</span>
+        <span> · ${r.numero}</span>
+        ${r.medio ? `<span class="log-detail"> · ${r.medio}</span>` : ''}
+        ${r.detalle ? `<div class="log-detail">${r.detalle}</div>` : ''}
+      </div>`;
+  }).join('') + '</div>';
+}
+
+// ═══════ TOAST ═══════
+function toast(msg, isError = false) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `toast show${isError ? ' error' : ''}`;
+  setTimeout(() => { el.className = 'toast'; }, 3000);
+}
+</script>
+</body>
+</html>

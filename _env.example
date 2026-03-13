@@ -1,0 +1,46 @@
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=tu_auth_token
+TWILIO_PHONE_NUMBER=+541112345678
+
+# Número de WhatsApp para mensajes proactivos (bienvenidas, errores)
+# IMPORTANTE: poné el número exacto como aparece en Twilio Console > WhatsApp Senders
+# Para Argentina móvil suele ser +549XXXXXXXXXX (con el 9)
+TWILIO_WHATSAPP_NUMBER=+5492211234567
+
+EWELINK_EMAIL=tu_email@ejemplo.com
+EWELINK_PASSWORD=tu_password
+EWELINK_REGION=us
+EWELINK_DEVICE_ID=
+EWELINK_APP_ID=
+EWELINK_APP_SECRET=
+EWELINK_COUNTRY_CODE=+54
+
+# Secreto para JWT de la PWA (generá uno con: openssl rand -hex 32)
+JWT_SECRET=
+
+# Superadmins (solo se definen acá, no por WhatsApp)
+SUPERADMIN_1=+5492211234567
+SUPERADMIN_2=
+SUPERADMIN_3=
+SUPERADMIN_4=
+
+# PIN para que vecinos se registren como habitantes
+HABITANTE_PIN=1234
+
+PULSE_SECONDS=3
+
+# Nombre del barrio (aparece en bienvenidas)
+NOMBRE_BARRIO=Barrio Nirvana
+
+# Prefijo de país (se agrega automáticamente a números sin +)
+PREFIJO_PAIS=+549
+
+# Zona horaria
+TIMEZONE=America/Argentina/Buenos_Aires
+
+# Disco persistente de Render (montar en /var/data)
+# Todos los datos se guardan acá para sobrevivir restarts/deploys
+DATA_DIR=/var/data
+
+# Rate limit: máximo de pulsos por persona por minuto
+RATE_LIMIT_POR_MINUTO=6

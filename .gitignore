@@ -2,6 +2,11 @@ venv/
 __pycache__/
 *.pyc
 .env
+accesos.json
+registro.json
+estado.json
 *.egg-info/
 dist/
 build/
+*.log
+.DS_Store
