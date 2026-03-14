@@ -185,6 +185,22 @@ class EWeLinkController:
                     f"Device {device_id} offline (error 500)"
                 )
 
+            # Error de control transitorio → reintentar hasta 2 veces
+            if error_code == 4002:
+                for intento in range(1, 3):
+                    logger.warning(f"Error 4002 en switch, reintento {intento}/2...")
+                    await asyncio.sleep(2)
+                    async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
+                        data = await resp.json()
+                    if data.get("error") == 0:
+                        logger.info(f"Switch {device_id} -> {state} (reintento {intento} OK)")
+                        return PulseResult(True)
+                return PulseResult(
+                    False,
+                    "⚠️ El relay no respondió. Verificá la conexión WiFi del portón e intentá de nuevo.",
+                    f"Error 4002 persistente tras 2 reintentos: {data}"
+                )
+
             return PulseResult(False, f"Error de eWeLink (código {error_code})", f"{data}")
 
         except aiohttp.ClientError as e:
